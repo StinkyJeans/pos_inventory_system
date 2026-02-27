@@ -2,7 +2,7 @@ import "./globals.css";
 import { AppNav } from "@/components/AppNav";
 
 export const metadata = {
-  title: "POS & Inventory | Cafe & Restaurant",
+  title: "Tally",
   description: "Point of sale and inventory management for cafes and restaurants",
 };
 
