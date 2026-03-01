@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { ChartBar } from "griddy-icons";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { supabase } from "@/lib/supabase";
+import { ProductSoldModal } from "@/components/modal/productSold";
 
 export default function AdminSalesPage() {
   const [period, setPeriod] = useState("today");
   const [orders, setOrders] = useState([]);
   const [topItems, setTopItems] = useState([]);
   const [summary, setSummary] = useState({ count: 0, total: 0 });
+  const [byCategory, setByCategory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [productSoldModalOpen, setProductSoldModalOpen] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -32,21 +36,64 @@ export default function AdminSalesPage() {
       const total = (ordersData || []).reduce((s, o) => s + Number(o.total), 0);
       setSummary({ count, total });
 
-      const { data: itemsData } = await supabase
-        .from("order_items")
-        .select("product_name, quantity, line_total")
-        .gte("created_at", fromIso);
+      const [
+        { data: itemsData },
+        { data: productsData },
+        { data: categoriesData },
+      ] = await Promise.all([
+        supabase.from("order_items").select("product_id, product_name, quantity, line_total").gte("created_at", fromIso),
+        supabase.from("products").select("id, category_id"),
+        supabase.from("categories").select("id, name").order("sort_order"),
+      ]);
+
+      const productToCategory = {};
+      (productsData || []).forEach((p) => {
+        productToCategory[p.id] = p.category_id;
+      });
+      const categoryNames = {};
+      (categoriesData || []).forEach((c) => {
+        categoryNames[c.id] = c.name;
+      });
+
       const byName = {};
+      const categoryMap = {};
       (itemsData || []).forEach((row) => {
         if (!byName[row.product_name]) byName[row.product_name] = { name: row.product_name, quantity: 0, revenue: 0 };
         byName[row.product_name].quantity += row.quantity;
         byName[row.product_name].revenue += Number(row.line_total);
+
+        const catId = productToCategory[row.product_id] || null;
+        const catName = catId ? categoryNames[catId] || "Uncategorized" : "Uncategorized";
+        if (!categoryMap[catName]) categoryMap[catName] = { products: {}, total: 0 };
+        if (!categoryMap[catName].products[row.product_name]) categoryMap[catName].products[row.product_name] = { quantity: 0, revenue: 0 };
+        categoryMap[catName].products[row.product_name].quantity += row.quantity;
+        categoryMap[catName].products[row.product_name].revenue += Number(row.line_total);
+        categoryMap[catName].total += Number(row.line_total);
       });
       setTopItems(Object.values(byName).sort((a, b) => b.revenue - a.revenue).slice(0, 15));
+
+      const categoryList = Object.entries(categoryMap).map(([name, data]) => ({
+        name,
+        products: Object.entries(data.products).map(([pName, p]) => ({ name: pName, quantity: p.quantity, revenue: p.revenue })),
+        total: data.total,
+      })).sort((a, b) => b.total - a.total);
+      setByCategory(categoryList);
       setLoading(false);
     }
     load();
   }, [period]);
+
+  const chartData = useMemo(() => {
+    const byDate = {};
+    orders.forEach((o) => {
+      const d = new Date(o.created_at);
+      const key = d.toISOString().slice(0, 10);
+      if (!byDate[key]) byDate[key] = { date: key, label: d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }), revenue: 0, orders: 0 };
+      byDate[key].revenue += Number(o.total);
+      byDate[key].orders += 1;
+    });
+    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+  }, [orders]);
 
   return (
     <div>
@@ -73,6 +120,25 @@ export default function AdminSalesPage() {
         <p className="mt-6 text-stone-500">Loading…</p>
       ) : (
         <>
+          <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+            <h2 className="font-semibold text-stone-800 mb-4">Sales by day</h2>
+            {chartData.length > 0 ? (
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-stone-200" />
+                    <XAxis dataKey="label" tick={{ fontSize: 12 }} className="text-stone-600" />
+                    <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `$${v}`} />
+                    <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} labelFormatter={(label) => label} />
+                    <Bar dataKey="revenue" fill="rgb(245 158 11)" radius={[4, 4, 0, 0]} name="Revenue" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="text-stone-500 py-8 text-center">No sales in this period.</p>
+            )}
+          </div>
+
           <div className="mt-6 grid gap-6 sm:grid-cols-2">
             <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
               <h2 className="font-semibold text-stone-800">Sales summary</h2>
@@ -92,6 +158,25 @@ export default function AdminSalesPage() {
               </ul>
             </div>
           </div>
+
+          <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+            <h2 className="font-semibold text-stone-800">Products sold by category</h2>
+            <p className="mt-1 text-sm text-stone-500">Quantity and total amount per product, grouped by category.</p>
+            <button
+              type="button"
+              onClick={() => setProductSoldModalOpen(true)}
+              className="mt-4 rounded-xl bg-amber-500 px-4 py-2 font-medium text-white hover:bg-amber-600"
+            >
+              View products by category
+            </button>
+          </div>
+
+          <ProductSoldModal
+            open={productSoldModalOpen}
+            onClose={() => setProductSoldModalOpen(false)}
+            byCategory={byCategory}
+            periodLabel={period === "today" ? "Today" : period === "week" ? "Last 7 days" : "Last 30 days"}
+          />
 
           <div className="mt-6 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
             <h2 className="font-semibold text-stone-800">Top selling items (by revenue)</h2>
