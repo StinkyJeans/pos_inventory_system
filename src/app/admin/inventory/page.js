@@ -20,6 +20,9 @@ export default function AdminInventoryPage() {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newProduct, setNewProduct] = useState({ name: "", barcode: "", price: "", cost: "", category_id: "", quantity: "0", low_stock_threshold: "5" });
+  const [categoryMessage, setCategoryMessage] = useState(null);
+  const [productMessage, setProductMessage] = useState(null);
+  const [editMessage, setEditMessage] = useState(null);
 
   async function load() {
     const [prodRes, invRes, catRes] = await Promise.all([
@@ -79,8 +82,8 @@ export default function AdminInventoryPage() {
       { onConflict: "product_id" }
     );
     if (error) {
-      console.error(error);
-      return;
+      console.error("Inventory save failed:", error?.message ?? error);
+      return error?.message ?? "Failed to update inventory.";
     }
     setInventory((prev) => ({
       ...prev,
@@ -92,20 +95,39 @@ export default function AdminInventoryPage() {
     }));
     setEditingId(null);
     load();
+    return null;
   }
 
   async function savePrice(productId, price) {
     const { error } = await supabase.from("products").update({ price: parseFloat(price) || 0, updated_at: new Date().toISOString() }).eq("id", productId);
     if (error) {
-      console.error(error);
-      return;
+      console.error("Price save failed:", error?.message ?? error);
+      return error?.message ?? "Failed to update price.";
     }
     setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, price: parseFloat(price) || 0 } : p)));
     setEditingId(null);
+    return null;
+  }
+
+  async function handleSaveEdit(p) {
+    setEditMessage(null);
+    const invError = await saveInventory(p.id, editQty, editThreshold);
+    if (invError) {
+      setEditMessage({ type: "error", text: invError });
+      return;
+    }
+    const priceError = await savePrice(p.id, editPrice);
+    if (priceError) {
+      setEditMessage({ type: "error", text: priceError });
+      return;
+    }
+    setEditMessage({ type: "success", text: "Product updated successfully." });
+    setTimeout(() => setEditMessage(null), 4000);
   }
 
   function startEdit(p) {
     const inv = getInv(p.id);
+    setEditMessage(null);
     setEditingId(p.id);
     setEditQty(inv?.quantity ?? "");
     setEditPrice(p.price ?? "");
@@ -114,22 +136,27 @@ export default function AdminInventoryPage() {
 
   async function addCategory() {
     if (!newCategoryName.trim()) return;
+    setCategoryMessage(null);
     const { error } = await supabase.from("categories").insert({ name: newCategoryName.trim(), sort_order: categories.length + 1 });
     if (error) {
-      console.error(error);
+      console.error("Category add failed:", error?.message ?? error);
+      setCategoryMessage({ type: "error", text: error?.message || "Failed to add category." });
       return;
     }
     setNewCategoryName("");
     setShowAddCategory(false);
+    setCategoryMessage({ type: "success", text: "Category added successfully." });
     load();
+    setTimeout(() => setCategoryMessage(null), 4000);
   }
 
   async function addProduct() {
     if (!newProduct.name?.trim()) return;
     if (!newProduct.barcode?.trim()) {
-      setLookupError("Barcode is required for scanning at POS.");
+      setProductMessage({ type: "error", text: "Barcode is required for scanning at POS." });
       return;
     }
+    setProductMessage(null);
     const { data: product, error: prodErr } = await supabase
       .from("products")
       .insert({
@@ -142,19 +169,27 @@ export default function AdminInventoryPage() {
       .select("id")
       .single();
     if (prodErr) {
-      if (prodErr.code === "23505") setLookupError("A product with this barcode already exists.");
-      else console.error(prodErr);
+      const text = prodErr.code === "23505" ? "A product with this barcode already exists." : (prodErr.message || "Failed to add product.");
+      setProductMessage({ type: "error", text });
       return;
     }
-    await supabase.from("inventory").insert({
+    const { error: invErr } = await supabase.from("inventory").insert({
       product_id: product.id,
       quantity: parseFloat(newProduct.quantity) || 0,
       low_stock_threshold: parseFloat(newProduct.low_stock_threshold) || 5,
     });
+    if (invErr) {
+      setProductMessage({ type: "error", text: "Product created but inventory failed. Please edit stock manually." });
+      load();
+      setTimeout(() => setProductMessage(null), 5000);
+      return;
+    }
     setNewProduct({ name: "", barcode: "", price: "", cost: "", category_id: "", quantity: "0", low_stock_threshold: "5" });
     setShowAddProduct(false);
     setLookupError("");
+    setProductMessage({ type: "success", text: "Product added successfully." });
     load();
+    setTimeout(() => setProductMessage(null), 4000);
   }
 
   const lowStockCount = products.filter((p) => {
@@ -170,8 +205,20 @@ export default function AdminInventoryPage() {
     );
   }
 
+  const activeMessage = editMessage || productMessage || categoryMessage;
+
   return (
     <div>
+      {activeMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+          <div
+            className={`pointer-events-auto rounded-2xl border-2 px-6 py-4 text-center shadow-xl ${activeMessage.type === "success" ? "border-green-400 bg-green-50 text-green-900" : "border-red-400 bg-red-50 text-red-900"}`}
+            role="alert"
+          >
+            <p className="font-medium">{activeMessage.text}</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <Package size={28} className="text-stone-700" />
         <h1 className="text-2xl font-bold text-stone-800">Inventory</h1>
@@ -208,10 +255,10 @@ export default function AdminInventoryPage() {
       </form>
 
       <div className="mt-6 flex flex-wrap gap-2">
-        <button type="button" onClick={() => setShowAddCategory(!showAddCategory)} className="rounded-xl border border-stone-300 px-4 py-2 font-medium text-stone-700 hover:bg-stone-100">
+        <button type="button" onClick={() => { setShowAddCategory(!showAddCategory); setCategoryMessage(null); }} className="rounded-xl border border-stone-300 px-4 py-2 font-medium text-stone-700 hover:bg-stone-100">
           {showAddCategory ? "Cancel" : "+ Category"}
         </button>
-        <button type="button" onClick={() => setShowAddProduct(!showAddProduct)} className="rounded-xl bg-amber-500 px-4 py-2 font-medium text-white hover:bg-amber-600">
+        <button type="button" onClick={() => { setShowAddProduct(!showAddProduct); setProductMessage(null); }} className="rounded-xl bg-amber-500 px-4 py-2 font-medium text-white hover:bg-amber-600">
           {showAddProduct ? "Cancel" : "+ Add product"}
         </button>
       </div>
@@ -298,7 +345,7 @@ export default function AdminInventoryPage() {
                   <td className="px-4 py-3">
                     {isEditing ? (
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => { saveInventory(p.id, editQty, editThreshold); savePrice(p.id, editPrice); }} className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700">Save</button>
+                        <button type="button" onClick={() => handleSaveEdit(p)} className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700">Save</button>
                         <button type="button" onClick={() => setEditingId(null)} className="rounded bg-stone-300 px-2 py-1 text-xs text-stone-700 hover:bg-stone-400">Cancel</button>
                       </div>
                     ) : (

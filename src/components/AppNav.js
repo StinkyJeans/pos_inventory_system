@@ -16,12 +16,12 @@ export function AppNav() {
 
   return (
     <nav className="sticky top-0 z-50 border-b border-stone-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+      <div className="flex h-16 w-full items-center justify-between px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2 font-semibold text-stone-800">
           <Store size={24} className="text-stone-700" />
           <span>POS & Inventory</span>
         </Link>
-        <div className="flex gap-1">
+        <div className="flex gap-2">
           {mainLinks.map(({ href, label }) => (
             <Link
               key={href}

@@ -44,7 +44,7 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="w-full max-w-sm">
+    <div className="w-full max-w-sm rounded-2xl border border-stone-200 bg-white p-8 shadow-lg">
       <div className="flex items-center gap-2 mb-6">
         <Settings size={32} className="text-amber-600" />
         <h1 className="text-2xl font-bold text-stone-800">Admin login</h1>
