@@ -13,7 +13,6 @@ export default function POSPage() {
   const [barcodeError, setBarcodeError] = useState("");
   const [lastScanned, setLastScanned] = useState(null);
 
-  // Focus barcode input on load and after actions so scanner or keyboard works
   useEffect(() => {
     barcodeInputRef.current?.focus();
   }, [cart.length, lastOrderId]);

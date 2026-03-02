@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 export function AdminGuard({ children }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [status, setStatus] = useState("loading"); // 'loading' | 'login' | 'denied' | 'ok'
+  const [status, setStatus] = useState("loading");
 
   useEffect(() => {
     if (pathname === "/admin/login") {

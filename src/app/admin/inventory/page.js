@@ -26,7 +26,7 @@ export default function AdminInventoryPage() {
   const [editMessage, setEditMessage] = useState(null);
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
-  const [passwordModal, setPasswordModal] = useState(null); // { action: 'edit' | 'delete', product }
+  const [passwordModal, setPasswordModal] = useState(null);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
   const [showDeleteHistory, setShowDeleteHistory] = useState(false);
@@ -370,7 +370,6 @@ export default function AdminInventoryPage() {
       </div>
       <p className="mt-1 text-stone-600">Search by barcode or product name. Results update as you type.</p>
 
-      {/* Search: one input, auto barcode or name */}
       <div className="mt-6">
         <label htmlFor="admin-lookup" className="sr-only">Search product by barcode or name</label>
         <input

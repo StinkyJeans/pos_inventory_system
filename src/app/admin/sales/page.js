@@ -3,9 +3,9 @@
 import { useEffect, useState, useMemo } from "react";
 import { ChartBar } from "griddy-icons";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { ProductSoldModal } from "@/components/modal/productSold";
+import { downloadSalesExcel } from "@/components/salesExcelExport";
 
 export default function AdminSalesPage() {
   const [period, setPeriod] = useState("today");
@@ -16,6 +16,7 @@ export default function AdminSalesPage() {
   const [loading, setLoading] = useState(true);
   const [productSoldModalOpen, setProductSoldModalOpen] = useState(false);
   const [topItemsPage, setTopItemsPage] = useState(1);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
 
   const TOP_ITEMS_PER_PAGE = 20;
   const topItemsTotalPages = Math.max(1, Math.ceil(topItems.length / TOP_ITEMS_PER_PAGE));
@@ -112,56 +113,6 @@ export default function AdminSalesPage() {
     return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
   }, [orders]);
 
-  function downloadSalesExcel() {
-    const periodLabel = period === "today" ? "Today" : period === "week" ? "Last 7 days" : "Last 30 days";
-    const wb = XLSX.utils.book_new();
-
-    const summarySheet = XLSX.utils.aoa_to_sheet([
-      ["Sales report", periodLabel],
-      [],
-      ["Orders", summary.count],
-      ["Total revenue", summary.total.toFixed(2)],
-    ]);
-    XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
-
-    const ordersSheet = XLSX.utils.aoa_to_sheet([
-      ["Date", "Order ID", "Total", "Status"],
-      ...orders.map((o) => [
-        new Date(o.created_at).toLocaleString(),
-        o.id,
-        Number(o.total).toFixed(2),
-        o.status || "completed",
-      ]),
-    ]);
-    XLSX.utils.book_append_sheet(wb, ordersSheet, "Orders");
-
-    const byDaySheet = XLSX.utils.aoa_to_sheet([
-      ["Date", "Label", "Revenue", "Orders"],
-      ...chartData.map((r) => [r.date, r.label, r.revenue.toFixed(2), r.orders]),
-    ]);
-    XLSX.utils.book_append_sheet(wb, byDaySheet, "Sales by day");
-
-    const topSheet = XLSX.utils.aoa_to_sheet([
-      ["Product", "Units sold", "Revenue"],
-      ...topItems.map((item) => [item.name, item.quantity, item.revenue.toFixed(2)]),
-    ]);
-    XLSX.utils.book_append_sheet(wb, topSheet, "Top items");
-
-    const categoryRows = [];
-    byCategory.forEach((cat) => {
-      categoryRows.push([cat.name, "", "", ""]);
-      categoryRows.push(["Product", "Quantity", "Revenue", ""]);
-      cat.products.forEach((p) => categoryRows.push([p.name, p.quantity, p.revenue.toFixed(2), ""]));
-      categoryRows.push(["Category total", "", cat.total.toFixed(2), ""]);
-      categoryRows.push([]);
-    });
-    const categorySheet = XLSX.utils.aoa_to_sheet([["Category", "Product", "Quantity", "Revenue"], ...categoryRows]);
-    XLSX.utils.book_append_sheet(wb, categorySheet, "By category");
-
-    const dateStr = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(wb, `sales-${period}-${dateStr}.xlsx`);
-  }
-
   return (
     <div>
       <div className="flex items-center gap-2">
@@ -184,13 +135,35 @@ export default function AdminSalesPage() {
           ))}
         </div>
         {!loading && (
-          <button
-            type="button"
-            onClick={downloadSalesExcel}
-            className="rounded-lg border border-green-600 bg-green-50 px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
-          >
-            Download as Excel
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+              className="flex items-center gap-1 rounded-lg border border-green-600 bg-green-50 px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100"
+            >
+              Download as Excel
+              <span className="text-xs">▾</span>
+            </button>
+            {showDownloadDropdown && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowDownloadDropdown(false)} aria-hidden />
+                <div className="absolute right-0 top-full z-20 mt-1 min-w-[200px] rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
+                  <button type="button" onClick={() => { setShowDownloadDropdown(false); downloadSalesExcel("today"); }} className="block w-full px-4 py-2 text-left text-sm text-stone-700 hover:bg-stone-100">
+                    Download today&apos;s sales
+                  </button>
+                  <button type="button" onClick={() => { setShowDownloadDropdown(false); downloadSalesExcel("week"); }} className="block w-full px-4 py-2 text-left text-sm text-stone-700 hover:bg-stone-100">
+                    Download this week&apos;s sales
+                  </button>
+                  <button type="button" onClick={() => { setShowDownloadDropdown(false); downloadSalesExcel("month"); }} className="block w-full px-4 py-2 text-left text-sm text-stone-700 hover:bg-stone-100">
+                    Download this month&apos;s sales
+                  </button>
+                  <button type="button" onClick={() => { setShowDownloadDropdown(false); downloadSalesExcel("all"); }} className="block w-full px-4 py-2 text-left text-sm text-stone-700 hover:bg-stone-100">
+                    Download all sales
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
 
