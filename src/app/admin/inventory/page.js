@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { BarcodeScan, Package } from "griddy-icons";
+import { Package, Edit, Trash, Archive } from "griddy-icons";
 import { supabase } from "@/lib/supabase";
+import { DeleteHistoryModal } from "@/components/modal/deleteHistory";
 
 export default function AdminInventoryPage() {
   const barcodeInputRef = useRef(null);
@@ -23,15 +24,28 @@ export default function AdminInventoryPage() {
   const [categoryMessage, setCategoryMessage] = useState(null);
   const [productMessage, setProductMessage] = useState(null);
   const [editMessage, setEditMessage] = useState(null);
+  const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [passwordModal, setPasswordModal] = useState(null); // { action: 'edit' | 'delete', product }
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [confirmPasswordError, setConfirmPasswordError] = useState("");
+  const [showDeleteHistory, setShowDeleteHistory] = useState(false);
+  const [inactiveProducts, setInactiveProducts] = useState([]);
+
+  const PER_PAGE = 50;
+  const totalPages = Math.max(1, Math.ceil(products.length / PER_PAGE));
+  const paginatedProducts = products.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   async function load() {
-    const [prodRes, invRes, catRes] = await Promise.all([
-      supabase.from("products").select("*, categories(name)").order("name"),
+    const [prodRes, invRes, catRes, inactiveRes] = await Promise.all([
+      supabase.from("products").select("*, categories(name)").eq("is_active", true).order("name"),
       supabase.from("inventory").select("*"),
       supabase.from("categories").select("*").order("sort_order"),
+      supabase.from("products").select("*, categories(name)").eq("is_active", false).order("updated_at", { ascending: false }),
     ]);
     if (prodRes.data) setProducts(prodRes.data);
     if (catRes.data) setCategories(catRes.data);
+    if (inactiveRes.data) setInactiveProducts(inactiveRes.data);
     const invMap = {};
     (invRes.data || []).forEach((i) => (invMap[i.product_id] = i));
     setInventory(invMap);
@@ -43,6 +57,10 @@ export default function AdminInventoryPage() {
   }, []);
 
   useEffect(() => {
+    if (page > totalPages && totalPages >= 1) setPage(1);
+  }, [page, totalPages]);
+
+  useEffect(() => {
     barcodeInputRef.current?.focus();
   }, [lookupResult, lookupError]);
 
@@ -50,26 +68,50 @@ export default function AdminInventoryPage() {
     return inventory[productId];
   }
 
-  async function handleBarcodeLookup(e) {
-    e.preventDefault();
-    const input = e.currentTarget.elements?.barcode;
-    const value = input?.value?.trim() || "";
-    if (!value) return;
-    input.value = "";
-    setLookupError("");
-    setLookupResult(null);
-    const { data: product } = await supabase.from("products").select("*, categories(name)").eq("barcode", value).maybeSingle();
-    if (!product) {
-      setLookupError("No product found for this barcode.");
+  function clearAllMessages() {
+    setCategoryMessage(null);
+    setProductMessage(null);
+    setEditMessage(null);
+  }
+
+  useEffect(() => {
+    const value = searchQuery.trim();
+    if (!value) {
+      setLookupResult(null);
+      setLookupError("");
       return;
     }
-    const { data: inv } = await supabase.from("inventory").select("quantity, low_stock_threshold").eq("product_id", product.id).maybeSingle();
-    setLookupResult({
-      ...product,
-      quantity: inv ? Number(inv.quantity) : 0,
-      low_stock_threshold: inv ? Number(inv.low_stock_threshold) : 5,
-    });
-  }
+
+    const timer = setTimeout(async () => {
+      setLookupError("");
+      setLookupResult(null);
+      let product = null;
+      const { data: byBarcode } = await supabase.from("products").select("*, categories(name)").eq("barcode", value).eq("is_active", true).maybeSingle();
+      product = byBarcode;
+      if (!product) {
+        const { data: byName } = await supabase
+          .from("products")
+          .select("*, categories(name)")
+          .eq("is_active", true)
+          .ilike("name", `%${value}%`)
+          .order("name")
+          .limit(1);
+        product = byName?.[0] ?? null;
+      }
+      if (!product) {
+        setLookupError("No product found.");
+        return;
+      }
+      const { data: inv } = await supabase.from("inventory").select("quantity, low_stock_threshold").eq("product_id", product.id).maybeSingle();
+      setLookupResult({
+        ...product,
+        quantity: inv ? Number(inv.quantity) : 0,
+        low_stock_threshold: inv ? Number(inv.low_stock_threshold) : 5,
+      });
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   async function saveInventory(productId, quantity, low_stock_threshold) {
     const { error } = await supabase.from("inventory").upsert(
@@ -110,7 +152,7 @@ export default function AdminInventoryPage() {
   }
 
   async function handleSaveEdit(p) {
-    setEditMessage(null);
+    clearAllMessages();
     const invError = await saveInventory(p.id, editQty, editThreshold);
     if (invError) {
       setEditMessage({ type: "error", text: invError });
@@ -127,16 +169,86 @@ export default function AdminInventoryPage() {
 
   function startEdit(p) {
     const inv = getInv(p.id);
-    setEditMessage(null);
+    clearAllMessages();
     setEditingId(p.id);
     setEditQty(inv?.quantity ?? "");
     setEditPrice(p.price ?? "");
     setEditThreshold(inv?.low_stock_threshold ?? 5);
   }
 
+  function openPasswordModal(action, product) {
+    clearAllMessages();
+    setPasswordModal({ action, product });
+    setConfirmPassword("");
+    setConfirmPasswordError("");
+  }
+
+  function closePasswordModal() {
+    clearAllMessages();
+    setPasswordModal(null);
+    setConfirmPassword("");
+    setConfirmPasswordError("");
+  }
+
+  async function handleConfirmPassword() {
+    const password = confirmPassword.trim();
+    if (!password) {
+      setConfirmPasswordError("Enter your password.");
+      return;
+    }
+    setConfirmPasswordError("");
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.email) {
+      setConfirmPasswordError("Could not get current user.");
+      return;
+    }
+    const { error } = await supabase.auth.signInWithPassword({ email: user.email, password });
+    if (error) {
+      setConfirmPasswordError("Incorrect password.");
+      return;
+    }
+    const { action, product } = passwordModal;
+    closePasswordModal();
+    if (action === "edit") {
+      startEdit(product);
+    } else if (action === "delete") {
+      await deleteProduct(product);
+    }
+  }
+
+  async function deleteProduct(product) {
+    const { error } = await supabase
+      .from("products")
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq("id", product.id);
+    if (error) {
+      setEditMessage({ type: "error", text: error?.message || "Failed to remove product." });
+      return;
+    }
+    setEditMessage({ type: "success", text: "Product deactivated. It won't appear in inventory or POS." });
+    setTimeout(() => setEditMessage(null), 4000);
+    load();
+  }
+
+  async function restoreProduct(product) {
+    const { error } = await supabase
+      .from("products")
+      .update({ is_active: true, updated_at: new Date().toISOString() })
+      .eq("id", product.id);
+    if (error) {
+      console.error("Restore failed:", error?.message ?? error);
+      setEditMessage({ type: "error", text: error?.message || "Failed to restore product. Please try again." });
+      setTimeout(() => setEditMessage(null), 5000);
+      return;
+    }
+    setEditMessage({ type: "success", text: `"${product.name}" restored successfully. It will appear in inventory and POS again.` });
+    setTimeout(() => setEditMessage(null), 4000);
+    load();
+  }
+
   async function addCategory() {
     if (!newCategoryName.trim()) return;
-    setCategoryMessage(null);
+    clearAllMessages();
     const { error } = await supabase.from("categories").insert({ name: newCategoryName.trim(), sort_order: categories.length + 1 });
     if (error) {
       console.error("Category add failed:", error?.message ?? error);
@@ -156,7 +268,7 @@ export default function AdminInventoryPage() {
       setProductMessage({ type: "error", text: "Barcode is required for scanning at POS." });
       return;
     }
-    setProductMessage(null);
+    clearAllMessages();
     const { data: product, error: prodErr } = await supabase
       .from("products")
       .insert({
@@ -192,10 +304,11 @@ export default function AdminInventoryPage() {
     setTimeout(() => setProductMessage(null), 4000);
   }
 
-  const lowStockCount = products.filter((p) => {
+  const lowStockProducts = products.filter((p) => {
     const inv = getInv(p.id);
     return inv && Number(inv.quantity) <= Number(inv.low_stock_threshold ?? 5);
-  }).length;
+  });
+  const lowStockCount = lowStockProducts.length;
 
   if (loading) {
     return (
@@ -210,7 +323,7 @@ export default function AdminInventoryPage() {
   return (
     <div>
       {activeMessage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 pointer-events-none">
           <div
             className={`pointer-events-auto rounded-2xl border-2 px-6 py-4 text-center shadow-xl ${activeMessage.type === "success" ? "border-green-400 bg-green-50 text-green-900" : "border-red-400 bg-red-50 text-red-900"}`}
             role="alert"
@@ -219,47 +332,87 @@ export default function AdminInventoryPage() {
           </div>
         </div>
       )}
+
+      {passwordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50">
+          <div className="w-full max-w-sm rounded-2xl border border-stone-200 bg-white p-6 shadow-xl">
+            <h3 className="font-semibold text-stone-800">Confirm your password</h3>
+            <p className="mt-1 text-sm text-stone-600">
+              {passwordModal.action === "delete"
+                ? `Delete "${passwordModal.product?.name}"? Enter your admin password to continue.`
+                : "Enter your admin password to edit this product."}
+            </p>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Password"
+              autoComplete="current-password"
+              className="mt-4 w-full rounded-xl border border-stone-300 px-4 py-2.5 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+              onKeyDown={(e) => e.key === "Enter" && handleConfirmPassword()}
+            />
+            {confirmPasswordError && <p className="mt-2 text-sm text-red-600">{confirmPasswordError}</p>}
+            <div className="mt-4 flex gap-2 justify-end">
+              <button type="button" onClick={closePasswordModal} className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100">
+                Cancel
+              </button>
+              <button type="button" onClick={handleConfirmPassword} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700">
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
         <Package size={28} className="text-stone-700" />
         <h1 className="text-2xl font-bold text-stone-800">Inventory</h1>
       </div>
-      <p className="mt-1 text-stone-600">Scan barcode to view product. Add items, update stock and prices.</p>
+      <p className="mt-1 text-stone-600">Search by barcode or product name. Results update as you type.</p>
 
-      {/* Barcode lookup */}
-      <form onSubmit={handleBarcodeLookup} className="mt-6">
-        <label htmlFor="admin-barcode" className="sr-only">Scan barcode</label>
-        <div className="flex gap-2">
-          <input
-            id="admin-barcode"
-            ref={barcodeInputRef}
-            name="barcode"
-            type="text"
-            autoComplete="off"
-            placeholder="Scan or enter barcode to find product"
-            aria-label="Barcode"
-            className="flex-1 rounded-xl border border-stone-300 px-4 py-3 font-mono focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
-          />
-          <button type="submit" className="rounded-xl bg-stone-800 px-6 py-3 font-medium text-white hover:bg-stone-700">Look up</button>
-        </div>
-        {lookupError && <p className="mt-2 text-sm text-red-600">{lookupError}</p>}
-        {lookupResult && (
+      {/* Search: one input, auto barcode or name */}
+      <div className="mt-6">
+        <label htmlFor="admin-lookup" className="sr-only">Search product by barcode or name</label>
+        <input
+          id="admin-lookup"
+          ref={barcodeInputRef}
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          autoComplete="off"
+          placeholder="Scan or type barcode or product name"
+          aria-label="Search product"
+          className="w-full max-w-xl rounded-xl border border-stone-300 px-4 py-3 font-mono focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+        />
+        {searchQuery.trim() && lookupError && <p className="mt-2 text-sm text-red-600">{lookupError}</p>}
+        {searchQuery.trim() && lookupResult && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
             <p className="font-semibold text-stone-800">{lookupResult.name}</p>
             <p className="text-sm text-stone-600">Barcode: <code className="font-mono">{lookupResult.barcode}</code></p>
             <p className="text-sm text-stone-600">Price: <span className="font-mono">${Number(lookupResult.price).toFixed(2)}</span></p>
             <p className="text-sm text-stone-600">Quantity in stock: <span className="font-mono">{lookupResult.quantity}</span></p>
             <p className="text-sm text-stone-600">Low stock threshold: <span className="font-mono">{lookupResult.low_stock_threshold}</span></p>
-            <button type="button" onClick={() => { setLookupResult(null); startEdit(lookupResult); }} className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-sm text-white hover:bg-amber-700">Edit stock / price</button>
+            <button type="button" onClick={() => openPasswordModal("edit", lookupResult)} className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-sm text-white hover:bg-amber-700">Edit stock / price</button>
           </div>
         )}
-      </form>
+      </div>
 
-      <div className="mt-6 flex flex-wrap gap-2">
-        <button type="button" onClick={() => { setShowAddCategory(!showAddCategory); setCategoryMessage(null); }} className="rounded-xl border border-stone-300 px-4 py-2 font-medium text-stone-700 hover:bg-stone-100">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2">
+<button type="button" onClick={() => { clearAllMessages(); setShowAddCategory(!showAddCategory); }} className="rounded-xl border border-stone-300 px-4 py-2 font-medium text-stone-700 hover:bg-stone-100">
           {showAddCategory ? "Cancel" : "+ Category"}
         </button>
-        <button type="button" onClick={() => { setShowAddProduct(!showAddProduct); setProductMessage(null); }} className="rounded-xl bg-amber-500 px-4 py-2 font-medium text-white hover:bg-amber-600">
+        <button type="button" onClick={() => { clearAllMessages(); setShowAddProduct(!showAddProduct); }} className="rounded-xl bg-amber-500 px-4 py-2 font-medium text-white hover:bg-amber-600">
           {showAddProduct ? "Cancel" : "+ Add product"}
+        </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => { clearAllMessages(); setShowDeleteHistory(true); }}
+          className="flex items-center gap-2 rounded-xl border border-stone-300 px-4 py-2 font-medium text-stone-700 hover:bg-stone-100"
+        >
+          <Archive size={20} />
+          Delete history ({inactiveProducts.length})
         </button>
       </div>
 
@@ -294,7 +447,7 @@ export default function AdminInventoryPage() {
 
       {lowStockCount > 0 && (
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-amber-900">
-          <strong>Low stock:</strong> {lowStockCount} item(s) at or below threshold.
+          <strong>Low stock:</strong> {lowStockCount} item(s) at or below threshold — <span className="font-medium">{lowStockProducts.map((p) => p.name).join(", ")}</span>
         </div>
       )}
 
@@ -312,13 +465,18 @@ export default function AdminInventoryPage() {
             </tr>
           </thead>
           <tbody>
-            {products.map((p) => {
+            {paginatedProducts.map((p) => {
               const inv = getInv(p.id);
               const isLow = inv && Number(inv.quantity) <= Number(inv.low_stock_threshold ?? 5);
               const isEditing = editingId === p.id;
               return (
                 <tr key={p.id} className={`border-b border-stone-100 ${isLow ? "bg-red-50/50" : ""}`}>
-                  <td className="px-4 py-3 font-medium text-stone-800">{p.name}</td>
+                  <td className="px-4 py-3 font-medium text-stone-800">
+                    <span className={isLow ? "text-red-800" : ""}>{p.name}</span>
+                    {isLow && (
+                      <span className="ml-2 inline-flex rounded bg-amber-200 px-1.5 py-0.5 text-xs font-medium text-amber-900">Low stock</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 font-mono text-stone-600">{p.barcode || "—"}</td>
                   <td className="px-4 py-3 text-stone-600">{p.categories?.name ?? "—"}</td>
                   <td className="px-4 py-3">
@@ -346,10 +504,13 @@ export default function AdminInventoryPage() {
                     {isEditing ? (
                       <div className="flex gap-2">
                         <button type="button" onClick={() => handleSaveEdit(p)} className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700">Save</button>
-                        <button type="button" onClick={() => setEditingId(null)} className="rounded bg-stone-300 px-2 py-1 text-xs text-stone-700 hover:bg-stone-400">Cancel</button>
+                        <button type="button" onClick={() => { clearAllMessages(); setEditingId(null); }} className="rounded bg-stone-300 px-2 py-1 text-xs text-stone-700 hover:bg-stone-400">Cancel</button>
                       </div>
                     ) : (
-                      <button type="button" onClick={() => startEdit(p)} className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800 hover:bg-amber-200">Edit</button>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => openPasswordModal("edit", p)} className="rounded bg-amber-100 p-1.5 text-amber-800 hover:bg-amber-200" aria-label="Edit"><Edit size={16} /></button>
+                        <button type="button" onClick={() => openPasswordModal("delete", p)} className="rounded bg-red-100 p-1.5 text-red-800 hover:bg-red-200" aria-label="Delete"><Trash size={16} /></button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -360,7 +521,42 @@ export default function AdminInventoryPage() {
         {products.length === 0 && (
           <div className="px-4 py-12 text-center text-stone-500">No products. Add one above (include a barcode for POS scanning).</div>
         )}
+        {products.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 bg-stone-50 px-4 py-3 text-sm">
+            <span className="text-stone-600">
+              Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, products.length)} of {products.length} products
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-lg border border-stone-300 px-3 py-1.5 font-medium text-stone-700 hover:bg-stone-100 disabled:pointer-events-none disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <span className="font-medium text-stone-800">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="rounded-lg border border-stone-300 px-3 py-1.5 font-medium text-stone-700 hover:bg-stone-100 disabled:pointer-events-none disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      <DeleteHistoryModal
+        open={showDeleteHistory}
+        onClose={() => { clearAllMessages(); setShowDeleteHistory(false); }}
+        inactiveProducts={inactiveProducts}
+        onRestore={restoreProduct}
+      />
     </div>
   );
 }
