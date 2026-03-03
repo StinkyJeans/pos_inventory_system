@@ -5,8 +5,7 @@ A web-based **Point of Sale (POS)** and **inventory management** system with **b
 ## Features
 
 - **POS** — Scan barcode (or type and Enter) to add items; price and available quantity shown. Complete sale to deduct quantity from inventory.
-- **Admin → Inventory** — Scan barcode to view a product (name, price, quantity). Add new products (barcode required), update stock and prices, low-stock alerts.
-- **Admin → Sales** — Bar chart of sales by day, summary totals, recent orders, top-selling items (today / week / month). Admin requires a separate login (see below).
+- **Admin** — Links open the separate **pos_admin** app (inventory, sales reports). Run pos_admin on port 3001 and set `NEXT_PUBLIC_ADMIN_URL` in `.env.local` if needed.
 
 ## Tech stack
 
@@ -36,24 +35,23 @@ A web-based **Point of Sale (POS)** and **inventory management** system with **b
    ```bash
    npm run dev
    ```
-   Open [http://localhost:3000](http://localhost:3000). Use **POS** for sales (barcode scan), **Admin** for inventory and sales reports.
+   Open [http://localhost:3000](http://localhost:3000). Use **POS** for sales (barcode scan). **Admin** opens the separate pos_admin app (run it on port 3001).
 
 ## Deploy (e.g. Vercel)
 
 1. Push the repo to GitHub and import it in [vercel.com](https://vercel.com).
-2. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in project Environment Variables.
+2. Add `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and optionally `NEXT_PUBLIC_ADMIN_URL` in project Environment Variables.
 3. Deploy. The app will be live at your Vercel URL.
 
 ## Project structure
 
-- `src/app/` — Dashboard (`/`), POS (`/pos`), Admin (`/admin/inventory`, `/admin/sales`)
-- `src/components/` — AppNav, AdminNav, DashboardSnapshot
+- `src/app/` — Dashboard (`/`), POS (`/pos`), redirects to admin for `/inventory` and `/reports`
+- `src/components/` — AppNav, DashboardSnapshot, RedirectToAdmin
 - `src/lib/supabase.js` — Supabase client
 - `supabase/schema.sql` — Full schema and seed (with barcodes)
 - `supabase/migrations/001_add_barcode.sql` — Add barcode column to existing DB
-- `supabase/migrations/002_profiles_and_roles.sql` — Profiles and roles (admin / pos) for separate admin login
+- `supabase/migrations/002_profiles_and_roles.sql` — Profiles and roles for admin (used by pos_admin)
 
 ## License
 
 MIT.
-# pos_inventory_system

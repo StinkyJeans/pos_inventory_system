@@ -144,7 +144,7 @@ async function main() {
   const inventoryRows = productList.map((p) => ({
     product_id: p.id,
     quantity: Math.floor(10 + Math.random() * 90),
-    low_stock_threshold: 5 + Math.floor(Math.random() * 10),
+    low_stock_threshold: 50,
   }));
   await supabase.from("inventory").upsert(inventoryRows, { onConflict: "product_id" });
   console.log("Inventory rows:", inventoryRows.length);

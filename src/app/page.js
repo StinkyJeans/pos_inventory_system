@@ -17,14 +17,16 @@ export default function DashboardPage() {
           <h2 className="mt-4 text-xl font-semibold text-stone-800 group-hover:text-amber-800">POS</h2>
           <p className="mt-2 text-stone-600">Scan barcodes to add items. Complete sale to deduct from inventory.</p>
         </Link>
-        <Link
-          href="/admin"
+        <a
+          href={process.env.NEXT_PUBLIC_ADMIN_URL || "http://localhost:3001"}
+          target="_blank"
+          rel="noopener noreferrer"
           className="group rounded-2xl border border-stone-200 bg-white p-8 shadow-sm transition hover:border-amber-300 hover:shadow-md"
         >
           <Settings size={40} className="text-amber-600" />
           <h2 className="mt-4 text-xl font-semibold text-stone-800 group-hover:text-amber-800">Admin</h2>
           <p className="mt-2 text-stone-600">View sales, manage inventory, add products (with barcode), update stock and prices.</p>
-        </Link>
+        </a>
       </div>
 
       <DashboardSnapshot />

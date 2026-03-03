@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { RedirectToAdmin } from "@/components/RedirectToAdmin";
 
 export default function InventoryPage() {
-  redirect("/admin/inventory");
+  return <RedirectToAdmin path="/inventory" />;
 }

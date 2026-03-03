@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { Receipt, Package } from "griddy-icons";
 import { supabase } from "@/lib/supabase";
+
+const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL || "http://localhost:3001";
 
 export function DashboardSnapshot() {
   const [todayOrders, setTodayOrders] = useState(null);
@@ -28,7 +29,7 @@ export function DashboardSnapshot() {
       setTodayOrders(ordersRes?.count ?? 0);
 
       const low = (invRes.data || []).filter(
-        (row) => Number(row.quantity) <= Number(row.low_stock_threshold ?? 5)
+        (row) => Number(row.quantity) <= Number(row.low_stock_threshold ?? 50)
       ).length;
       setLowStockCount(low);
       setLoading(false);
@@ -69,12 +70,14 @@ export function DashboardSnapshot() {
           </div>
         </div>
         {lowStockCount > 0 && (
-          <Link
-            href="/admin/inventory"
+          <a
+            href={`${adminUrl}/inventory`}
+            target="_blank"
+            rel="noopener noreferrer"
             className="self-center rounded-lg bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-200"
           >
             Review inventory →
-          </Link>
+          </a>
         )}
       </div>
     </div>

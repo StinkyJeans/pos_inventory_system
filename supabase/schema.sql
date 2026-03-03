@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS inventory (
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
   unit TEXT DEFAULT 'unit',
-  low_stock_threshold DECIMAL(10,2) DEFAULT 5,
+  low_stock_threshold DECIMAL(10,2) DEFAULT 50,
   updated_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(product_id)
 );
@@ -95,4 +95,4 @@ SELECT c.id, '5901234123460', 'Sandwich', 8.00, 2.50 FROM categories c WHERE c.n
 ON CONFLICT (barcode) DO NOTHING;
 
 INSERT INTO inventory (product_id, quantity, low_stock_threshold)
-SELECT id, 50, 10 FROM products ON CONFLICT (product_id) DO NOTHING;
+SELECT id, 50, 50 FROM products ON CONFLICT (product_id) DO NOTHING;
