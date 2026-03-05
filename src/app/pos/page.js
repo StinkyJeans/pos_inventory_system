@@ -8,6 +8,11 @@ export default function POSPage() {
   const barcodeInputRef = useRef(null);
   const [cart, setCart] = useState([]);
   const [note, setNote] = useState("");
+  const [orderType, setOrderType] = useState("takeout");
+  const [tableLabel, setTableLabel] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [discountType, setDiscountType] = useState("none");
+  const [discountValue, setDiscountValue] = useState("");
   const [checkingOut, setCheckingOut] = useState(false);
   const [lastOrderId, setLastOrderId] = useState(null);
   const [barcodeError, setBarcodeError] = useState("");
@@ -80,12 +85,27 @@ export default function POSPage() {
     setCart((prev) => prev.filter((i) => i.id !== id));
   }
 
-  const subtotal = cart.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
+  const rawSubtotal = cart.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
+  const parsedDiscountValue = Number(discountValue || 0);
+  const discountAmount = discountType === "percent"
+    ? Math.min(rawSubtotal, Number((rawSubtotal * (parsedDiscountValue / 100)).toFixed(2)))
+    : discountType === "fixed"
+      ? Math.min(rawSubtotal, parsedDiscountValue)
+      : 0;
+  const subtotal = Math.max(0, rawSubtotal - discountAmount);
   const tax = Math.round(subtotal * 0.08 * 100) / 100;
   const total = subtotal + tax;
 
   async function checkout() {
     if (cart.length === 0) return;
+    if (orderType === "dine_in" && !tableLabel.trim()) {
+      setBarcodeError("Table number/name is required for dine-in orders.");
+      return;
+    }
+    if (discountType === "percent" && parsedDiscountValue > 100) {
+      setBarcodeError("Percent discount cannot be greater than 100.");
+      return;
+    }
     setCheckingOut(true);
     setBarcodeError("");
     try {
@@ -93,6 +113,12 @@ export default function POSPage() {
         .from("orders")
         .insert({
           status: "completed",
+          order_type: orderType,
+          table_label: orderType === "dine_in" ? (tableLabel.trim() || null) : null,
+          payment_method: paymentMethod,
+          discount_type: discountType,
+          discount_value: parsedDiscountValue || 0,
+          discount_amount: discountAmount,
           subtotal: subtotal.toFixed(2),
           tax,
           total: total.toFixed(2),
@@ -126,6 +152,8 @@ export default function POSPage() {
       setCart([]);
       setNote("");
       setLastScanned(null);
+      setDiscountType("none");
+      setDiscountValue("");
     } catch (e) {
       console.error(e);
       setBarcodeError("Checkout failed. Try again.");
@@ -201,6 +229,68 @@ export default function POSPage() {
             <h2 className="font-semibold text-stone-800">Total</h2>
           </div>
           <div className="space-y-2 px-4 py-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="text-xs font-medium text-stone-700">
+                Order type
+                <select
+                  value={orderType}
+                  onChange={(e) => setOrderType(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                >
+                  <option value="dine_in">Dine-in</option>
+                  <option value="takeout">Takeout</option>
+                  <option value="delivery">Delivery</option>
+                </select>
+              </label>
+              <label className="text-xs font-medium text-stone-700">
+                Payment method
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="ewallet">E-wallet</option>
+                </select>
+              </label>
+            </div>
+            {orderType === "dine_in" && (
+              <input
+                type="text"
+                placeholder="Table no. (e.g. T-8)"
+                value={tableLabel}
+                onChange={(e) => setTableLabel(e.target.value)}
+                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+              />
+            )}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="text-xs font-medium text-stone-700">
+                Discount type
+                <select
+                  value={discountType}
+                  onChange={(e) => setDiscountType(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
+                >
+                  <option value="none">None</option>
+                  <option value="percent">Percent (%)</option>
+                  <option value="fixed">Fixed ($)</option>
+                </select>
+              </label>
+              <label className="text-xs font-medium text-stone-700">
+                Discount value
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={discountValue}
+                  onChange={(e) => setDiscountValue(e.target.value)}
+                  disabled={discountType === "none"}
+                  className="mt-1 w-full rounded-lg border border-stone-200 px-3 py-2 text-sm disabled:bg-stone-50 disabled:text-stone-400"
+                  placeholder={discountType === "percent" ? "e.g. 10" : "e.g. 2.50"}
+                />
+              </label>
+            </div>
             <input
               type="text"
               placeholder="Order note (optional)"
@@ -209,7 +299,15 @@ export default function POSPage() {
               className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm"
             />
             <div className="flex justify-between text-sm text-stone-600">
-              <span>Subtotal</span>
+              <span>Items subtotal</span>
+              <span className="font-mono">${rawSubtotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm text-stone-600">
+              <span>Discount</span>
+              <span className="font-mono">-${discountAmount.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm text-stone-600">
+              <span>Subtotal after discount</span>
               <span className="font-mono">${subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-sm text-stone-600">

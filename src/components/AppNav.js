@@ -4,12 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Store } from "griddy-icons";
 
-const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL || "http://localhost:3001";
-
 const mainLinks = [
   { href: "/", label: "Dashboard" },
   { href: "/pos", label: "POS" },
-  { href: adminUrl, label: "Admin", external: true },
 ];
 
 export function AppNav() {
@@ -23,29 +20,17 @@ export function AppNav() {
           <span>POS & Inventory</span>
         </Link>
         <div className="flex gap-2">
-          {mainLinks.map(({ href, label, external }) =>
-            external ? (
-              <a
-                key={href}
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-lg px-3 py-2 text-sm font-medium text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900"
-              >
-                {label}
-              </a>
-            ) : (
-              <Link
-                key={href}
-                href={href}
-                className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  pathname === href ? "bg-amber-100 text-amber-900" : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
-                }`}
-              >
-                {label}
-              </Link>
-            )
-          )}
+          {mainLinks.map(({ href, label }) => (
+            <Link
+              key={href}
+              href={href}
+              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                pathname === href ? "bg-amber-100 text-amber-900" : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+              }`}
+            >
+              {label}
+            </Link>
+          ))}
         </div>
       </div>
     </nav>

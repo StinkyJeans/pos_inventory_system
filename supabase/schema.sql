@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS inventory (
 CREATE TABLE IF NOT EXISTS orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('open', 'completed', 'voided')),
+  order_type TEXT NOT NULL DEFAULT 'takeout' CHECK (order_type IN ('dine_in', 'takeout', 'delivery')),
+  table_label TEXT,
+  payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'card', 'ewallet')),
+  discount_type TEXT CHECK (discount_type IN ('none', 'percent', 'fixed')),
+  discount_value DECIMAL(10,2) NOT NULL DEFAULT 0,
+  discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
   subtotal DECIMAL(10,2) NOT NULL DEFAULT 0,
   tax DECIMAL(10,2) DEFAULT 0,
   total DECIMAL(10,2) NOT NULL DEFAULT 0,

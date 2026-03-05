@@ -79,6 +79,10 @@ const PRODUCTS_BY_CATEGORY = {
   ],
 };
 
+const ORDER_TYPES = ["dine_in", "takeout", "delivery"];
+const PAYMENT_METHODS = ["cash", "card", "ewallet"];
+const DISCOUNT_TYPES = ["none", "percent", "fixed"];
+
 function barcode(seed) {
   return "59" + String(100000000000 + seed).slice(-11);
 }
@@ -175,11 +179,29 @@ async function main() {
       });
     }
     total = Number(total.toFixed(2));
+    const orderType = ORDER_TYPES[Math.floor(Math.random() * ORDER_TYPES.length)];
+    const paymentMethod = PAYMENT_METHODS[Math.floor(Math.random() * PAYMENT_METHODS.length)];
+    const discountType = DISCOUNT_TYPES[Math.floor(Math.random() * DISCOUNT_TYPES.length)];
+    let discountValue = 0;
+    if (discountType === "percent") discountValue = [5, 10, 15][Math.floor(Math.random() * 3)];
+    if (discountType === "fixed") discountValue = Number((1 + Math.random() * 4).toFixed(2));
+    const discountAmount = discountType === "percent"
+      ? Number((total * (discountValue / 100)).toFixed(2))
+      : discountType === "fixed"
+        ? Math.min(total, Number(discountValue))
+        : 0;
+    const subtotalAfterDiscount = Number(Math.max(0, total - discountAmount).toFixed(2));
     ordersToInsert.push({
       status: "completed",
-      subtotal: total,
+      order_type: orderType,
+      table_label: orderType === "dine_in" ? `T-${1 + Math.floor(Math.random() * 20)}` : null,
+      payment_method: paymentMethod,
+      discount_type: discountType,
+      discount_value: discountValue,
+      discount_amount: discountAmount,
+      subtotal: subtotalAfterDiscount,
       tax: 0,
-      total,
+      total: subtotalAfterDiscount,
       completed_at: createdAt.toISOString(),
       created_at: createdAt.toISOString(),
       _items: items,
@@ -188,6 +210,12 @@ async function main() {
 
   const ordersPayload = ordersToInsert.map((o) => ({
     status: o.status,
+    order_type: o.order_type,
+    table_label: o.table_label,
+    payment_method: o.payment_method,
+    discount_type: o.discount_type,
+    discount_value: o.discount_value,
+    discount_amount: o.discount_amount,
     subtotal: o.subtotal,
     tax: o.tax,
     total: o.total,
