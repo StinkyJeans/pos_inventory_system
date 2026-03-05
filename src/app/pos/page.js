@@ -66,7 +66,7 @@ export default function POSPage() {
         if (newQty > product.available) return prev;
         return prev.map((i) => (i.id === product.id ? { ...i, quantity: newQty, available: product.available } : i));
       }
-      return [...prev, { ...product, quantity: 1, available: product.available }];
+      return [...prev, { ...product, quantity: 1, available: product.available, modifiers_text: "", kitchen_note: "" }];
     });
   }
 
@@ -83,6 +83,10 @@ export default function POSPage() {
 
   function removeFromCart(id) {
     setCart((prev) => prev.filter((i) => i.id !== id));
+  }
+
+  function updateItemMeta(id, field, value) {
+    setCart((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: value } : i)));
   }
 
   const rawSubtotal = cart.reduce((sum, i) => sum + Number(i.price) * i.quantity, 0);
@@ -109,6 +113,8 @@ export default function POSPage() {
     setCheckingOut(true);
     setBarcodeError("");
     try {
+      const { data: authData } = await supabase.auth.getUser();
+      const actorUserId = authData?.user?.id ?? null;
       const { data: order, error: orderErr } = await supabase
         .from("orders")
         .insert({
@@ -136,6 +142,8 @@ export default function POSPage() {
         quantity: i.quantity,
         unit_price: Number(i.price),
         line_total: (Number(i.price) * i.quantity).toFixed(2),
+        modifiers_text: i.modifiers_text?.trim() || null,
+        kitchen_note: i.kitchen_note?.trim() || null,
       }));
       const { error: itemsErr } = await supabase.from("order_items").insert(items);
       if (itemsErr) throw itemsErr;
@@ -143,8 +151,24 @@ export default function POSPage() {
       for (const item of cart) {
         const { data: inv } = await supabase.from("inventory").select("quantity").eq("product_id", item.id).single();
         if (inv) {
+          const qtyBefore = Number(inv.quantity);
           const newQty = Math.max(0, Number(inv.quantity) - item.quantity);
           await supabase.from("inventory").update({ quantity: newQty, updated_at: new Date().toISOString() }).eq("product_id", item.id);
+          await supabase.from("inventory_adjustments").insert({
+            product_id: item.id,
+            order_id: order.id,
+            actor_user_id: actorUserId,
+            change_type: "sale",
+            quantity_before: qtyBefore,
+            quantity_change: -Math.abs(item.quantity),
+            quantity_after: newQty,
+            reason: "POS checkout",
+            metadata: {
+              item_name: item.name,
+              payment_method: paymentMethod,
+              order_type: orderType,
+            },
+          });
         }
       }
 
@@ -207,9 +231,25 @@ export default function POSPage() {
             <ul className="mt-3 space-y-2">
               {cart.map((i) => (
                 <li key={i.id} className="flex items-center justify-between gap-4 border-b border-stone-100 pb-2">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <span className="font-medium text-stone-800">{i.name}</span>
                     <span className="ml-2 text-sm text-stone-500">× {i.quantity} (avail. {i.available ?? 0})</span>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <input
+                        type="text"
+                        value={i.modifiers_text || ""}
+                        onChange={(e) => updateItemMeta(i.id, "modifiers_text", e.target.value)}
+                        placeholder="Add-ons / modifiers (e.g. oat milk, extra shot)"
+                        className="w-full rounded-lg border border-stone-200 px-2 py-1 text-xs"
+                      />
+                      <input
+                        type="text"
+                        value={i.kitchen_note || ""}
+                        onChange={(e) => updateItemMeta(i.id, "kitchen_note", e.target.value)}
+                        placeholder="Kitchen note (e.g. no sugar)"
+                        className="w-full rounded-lg border border-stone-200 px-2 py-1 text-xs"
+                      />
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => updateQty(i.id, -1)} className="h-8 w-8 rounded bg-stone-200 font-medium hover:bg-stone-300">−</button>

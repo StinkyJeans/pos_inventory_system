@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS inventory (
 -- Orders (sales)
 CREATE TABLE IF NOT EXISTS orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('open', 'completed', 'voided')),
+  status TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('open', 'completed', 'voided', 'refunded')),
   order_type TEXT NOT NULL DEFAULT 'takeout' CHECK (order_type IN ('dine_in', 'takeout', 'delivery')),
   table_label TEXT,
   payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'card', 'ewallet')),
@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS orders (
   tax DECIMAL(10,2) DEFAULT 0,
   total DECIMAL(10,2) NOT NULL DEFAULT 0,
   note TEXT,
+  void_reason TEXT,
+  refund_reason TEXT,
+  refunded_at TIMESTAMPTZ,
+  refunded_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now(),
   completed_at TIMESTAMPTZ
 );
@@ -65,6 +69,23 @@ CREATE TABLE IF NOT EXISTS order_items (
   quantity INT NOT NULL DEFAULT 1,
   unit_price DECIMAL(10,2) NOT NULL,
   line_total DECIMAL(10,2) NOT NULL,
+  modifiers_text TEXT,
+  kitchen_note TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Inventory audit trail
+CREATE TABLE IF NOT EXISTS inventory_adjustments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+  actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  change_type TEXT NOT NULL CHECK (change_type IN ('sale', 'refund', 'void', 'manual_adjustment', 'stock_in', 'stock_out')),
+  quantity_before DECIMAL(10,2) NOT NULL,
+  quantity_change DECIMAL(10,2) NOT NULL,
+  quantity_after DECIMAL(10,2) NOT NULL,
+  reason TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -74,12 +95,14 @@ ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_adjustments ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow all categories" ON categories FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all products" ON products FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all inventory" ON inventory FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all orders" ON orders FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all order_items" ON order_items FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all inventory_adjustments" ON inventory_adjustments FOR ALL USING (true) WITH CHECK (true);
 
 -- Seed categories (only when empty)
 INSERT INTO categories (name, sort_order)
